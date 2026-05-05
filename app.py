@@ -157,7 +157,7 @@ if audio_value is not None and audio_value != st.session_state.last_audio:
             audio_data = r.record(source)
         prompt = None
         try:
-            prompt = r.recognize_google(audio_data)
+            prompt = r.recognize_google(audio_data, language="en-IN")
         except sr.UnknownValueError:
             st.error("⚠️ Audio unclear or silent. Please speak clearly or type your message.")
         except Exception as e:
