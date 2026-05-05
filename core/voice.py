@@ -8,14 +8,22 @@ def generate_audio(text: str, lang: str = "en") -> io.BytesIO | None:
     """
     mapping = {
         "english": "en",
+        "en": "en",
         "hindi": "hi",
+        "hi": "hi",
         "hinglish": "hi",
+        "tamil": "ta",
         "ta": "ta",
+        "telugu": "te",
         "te": "te",
+        "marathi": "mr",
         "mr": "mr",
+        "gujarati": "gu",
         "gu": "gu",
+        "bengali": "bn",
         "bn": "bn",
-        "kn": "kn"
+        "kannada": "kn",
+        "kn": "kn",
     }
     tts_lang = mapping.get(lang.lower(), "en")
     
