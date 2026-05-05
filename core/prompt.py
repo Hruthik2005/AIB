@@ -72,12 +72,20 @@ Handle naturally:
 - call later
 
 -----------------------------------
-IMPORTANT:
-Even if the input is messy or incorrect, ALWAYS infer meaning and continue the conversation smoothly.
-Never say "I didn’t understand".
+⚙️ OUTPUT FORMAT (JSON REQUIRED)
+-----------------------------------
+You MUST output a valid JSON object with EXACTLY the following keys:
+{
+    "response": "Your conversational reply here",
+    "score": 0.0 to 1.0 (float, confidence/intent score of the lead),
+    "status": "Cold" or "Warm" or "Hot",
+    "language": "Detected language code (e.g. 'en', 'hi', 'ta', 'te', 'hinglish')"
+}
+
+IMPORTANT: The response MUST be inside the JSON object. Do not output anything outside the JSON structure.
 """
 
-def build_prompt(user_input, lang, history_text):
+def build_prompt(user_input, history_text):
     return f"""
     Conversation:
     {history_text}
@@ -85,5 +93,5 @@ def build_prompt(user_input, lang, history_text):
     User:
     {user_input}
 
-    Remember: This input might be phonetically messed up by STT. Automatically detect the user's intended language from the phonetics and reply in the EXACT SAME language and style. Keep it short and conversational.
+    Remember: This input might be phonetically messed up by STT. Detect the intended language from the phonetics and reply in the EXACT SAME language and style. Output STRICTLY in the required JSON format.
     """
