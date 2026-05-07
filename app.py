@@ -2,10 +2,10 @@ import streamlit as st
 import time
 from core.llm_engine import get_gemini_response
 from core.voice import generate_audio
-import speech_recognition as sr
+from core.logger import logger
+import hashlib
 import os
 from dotenv import load_dotenv
-from deep_translator import GoogleTranslator
 
 load_dotenv()
 
@@ -15,6 +15,7 @@ st.set_page_config(page_title="Rupeezy AI Agent", page_icon="🎤", layout="cent
 # SESSION STATE INIT
 # ───────────────────────────────────────────────
 if "messages" not in st.session_state:
+    logger.info("New session started")
     st.session_state.messages = [
         {
             "role": "assistant",
@@ -186,6 +187,15 @@ div[data-testid="stHorizontalBlock"]:first-of-type {
     letter-spacing: .5px !important;
     color: #9ca3af !important;
 }
+
+/* ── Suppression of default Streamlit errors/toasts ── */
+div[data-testid="stNotification"], 
+div[data-testid="stException"], 
+.stException, 
+.stAlert, 
+[data-testid="stToast"] {
+    display: none !important;
+}
 </style>
 """,
     unsafe_allow_html=True,
@@ -285,6 +295,7 @@ with mic_col:
 _pad1, btn_end, btn_restart, _pad2 = st.columns([1.5, 1, 1, 1.5])
 with btn_end:
     if st.button("🔴 End Call", use_container_width=True):
+        logger.info(f"Call ended manually. Final Status: {st.session_state.status}, Score: {st.session_state.score}")
         st.session_state.messages = [
             {
                 "role": "assistant",
@@ -320,66 +331,78 @@ with btn_restart:
 typed_prompt = st.chat_input("Or type your message here…")
 
 # ───────────────────────────────────────────────
-# 7 · BACKEND LOGIC (unchanged)
+# 7 · BACKEND LOGIC (Optimized Multimodal)
 # ───────────────────────────────────────────────
 api_key = os.getenv("GEMINI_API_KEY")
 
-prompt = None  # will be set by either voice or text
+prompt = None
+audio_bytes = None
+audio_mime = None
 
 # ── Voice path ──
-if audio_value is not None and audio_value != st.session_state.last_audio:
-    st.session_state.last_audio = audio_value
-    st.session_state.processing_state = "Thinking"
-
-    r = sr.Recognizer()
-    with sr.AudioFile(audio_value) as source:
-        audio_data = r.record(source)
-    try:
-        prompt = r.recognize_google(audio_data, language="en-IN")
-    except sr.UnknownValueError:
-        st.error("⚠️ Audio unclear or silent.")
-        st.session_state.processing_state = "Idle"
-        st.rerun()
-    except Exception as e:
-        st.error(f"STT Error: {e}")
-        st.session_state.processing_state = "Idle"
-        st.rerun()
+if audio_value:
+    current_audio_bytes = audio_value.getvalue()
+    audio_hash = hashlib.md5(current_audio_bytes).hexdigest()
+    
+    if audio_hash != st.session_state.get("last_audio_hash"):
+        logger.debug("New audio input detected via hash")
+        st.session_state.last_audio_hash = audio_hash
+        audio_bytes = current_audio_bytes
+        audio_mime = audio_value.type
 
 # ── Text path ──
 if typed_prompt:
     prompt = typed_prompt
 
-# ── Shared processing ──
-if prompt:
-    translated_prompt = prompt
+# ── Processing ──
+if prompt or audio_bytes:
     try:
-        translated_prompt = GoogleTranslator(source="auto", target="en").translate(prompt)
-    except Exception:
-        pass
+        if prompt:
+            st.session_state.messages.append({"role": "user", "content": prompt})
 
-    display_text = prompt
-    if translated_prompt and translated_prompt.strip().lower() != prompt.strip().lower():
-        display_text += f"<br><small style='opacity:0.7'><em>English: {translated_prompt}</em></small>"
+        st.session_state.processing_state = "Thinking"
+        
+        llm_json = get_gemini_response(
+            api_key, 
+            prompt, 
+            st.session_state.messages, 
+            audio_bytes=audio_bytes, 
+            audio_mime=audio_mime
+        )
 
-    st.session_state.messages.append({"role": "user", "content": display_text})
+        transcript = llm_json.get("user_transcript")
+        ai_response_text = llm_json.get("response", "I'm sorry, I encountered an error.")
+        detected_lang = llm_json.get("language", "en")
+        
+        try:
+            st.session_state.score = float(llm_json.get("score", 0.0))
+        except (ValueError, TypeError):
+            st.session_state.score = 0.0
+            
+        old_status = st.session_state.status
+        st.session_state.status = llm_json.get("status", "Warm")
+        if old_status != st.session_state.status:
+            logger.info(f"Lead status changed from {old_status} to {st.session_state.status}")
 
-    st.session_state.processing_state = "Thinking"
-    llm_json = get_gemini_response(api_key, prompt, st.session_state.messages)
+        # If it was audio, add the transcribed user message to history
+        if audio_bytes and transcript:
+            logger.info(f"Audio Transcript: '{transcript}'")
+            st.session_state.messages.append({"role": "user", "content": f"🎤 {transcript}"})
 
-    ai_response_text = llm_json.get("response", "I'm sorry, I encountered an error.")
-    detected_lang = llm_json.get("language", "en")
-    st.session_state.score = float(llm_json.get("score", 0.0))
-    st.session_state.status = llm_json.get("status", "Warm")
+        logger.info(f"AI Response: '{ai_response_text[:50]}...' Status: {st.session_state.status}, Score: {st.session_state.score}")
+        st.session_state.messages.append(
+            {"role": "assistant", "content": ai_response_text, "language": detected_lang}
+        )
 
-    st.session_state.messages.append(
-        {"role": "assistant", "content": ai_response_text, "language": detected_lang}
-    )
+        st.session_state.processing_state = "Idle"
 
-    st.session_state.processing_state = "Idle"
+        audio_fp = generate_audio(ai_response_text, detected_lang)
+        if audio_fp:
+            st.session_state.pending_audio = audio_fp
 
-    audio_fp = generate_audio(ai_response_text, detected_lang)
-    if audio_fp:
-        st.session_state.pending_audio = audio_fp
-
-    st.rerun()
+        st.rerun()
+    except Exception as e:
+        logger.error(f"Global Backend Error: {e}", exc_info=True)
+        st.session_state.processing_state = "Idle"
+        st.rerun()
 

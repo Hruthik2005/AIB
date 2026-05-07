@@ -76,6 +76,7 @@ Handle naturally:
 -----------------------------------
 You MUST output a valid JSON object with EXACTLY the following keys:
 {
+    "user_transcript": "Transcribe the user's input exactly as they said it (or as intended)",
     "response": "Your conversational reply here",
     "score": 0.0 to 1.0 (float, confidence/intent score of the lead),
     "status": "Cold" or "Warm" or "Hot",

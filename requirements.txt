@@ -1,0 +1,6 @@
+streamlit
+google-genai
+edge-tts
+langdetect
+python-dotenv
+watchdog
